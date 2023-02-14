@@ -20,7 +20,6 @@
 # are used to.
 
 function git_clone_or_update() {
-set -x
   if [[ $# != "4" ]]
   then
     echo_magenta "git_clone_or_update needs exactly 4 arguments to proceed"
@@ -50,11 +49,6 @@ set -x
       return 3
       ;;
   esac
-  # git rev-parse --path-format=absolute
-  # git rev-parse --show-toplevel
-  # git rev-parse --show-prefix
-  # git rev-parse --is-inside-git-dir
-  # git rev-parse --is-inside-work-tree
   TOP_LEVEL_URL="$(git remote get-url origin 2> /dev/null || true)"
   if [[ "${TOP_LEVEL_URL}" == "${REMOTE_URL}" ]]
   then
@@ -90,21 +84,28 @@ set -x
     mkdir -p "${GITDIR}"
     git -C "${GITDIR}" init
     git -C "${GITDIR}" remote add origin "${REMOTE_URL}"
-    git -C "${GITDIR}" fetch origin --tags --force --prune
-    if [[ ! -d "${WORKTREE}" ]]
-    then
-      git -C "${GITDIR}" worktree add "${WORKTREE}" "${TAGBRANCH}"
-    fi
   fi
   if [[ -d "${WORKTREE}" ]]
   then
     pushd "${WORKTREE}"
+    # Make sure the worktree is a functional worktree of the right git repo!!!
+
+    if [[ -n "$(git rev-parse --show-prefix)" ]]
+    then
+      echo_red "\\nLocal git worktree may be corrupted!!!"
+      echo_red "  Refusing to overwrite anything..."
+      echo_red "  You might try running"
+      echo_blue "  rm -rf $GITDIR"
+      echo_red "  and trying again if you are sure that this is safe."
+      return 7
+    fi
+
     # Make sure worktree does not contain uncommited modifications.
     if ! git diff --exit-code HEAD
     then
       echo_red "\\nThere may be modifications to your worktree files."
       echo_red "Refusing to overwrite anything..."
-      return 7
+      return 8
     fi
     # Make sure working tree is a commit that existed in a remote branch
     # at the time of the last update. If a branch was force pushed we
@@ -115,22 +116,21 @@ set -x
       echo_red "\\nThe local git worktree no longer matches anything upstream."
       echo_red "This probably means you made local changes and commited them."
       echo_red "Refusing to overwrite anything..."
-      return 8
+      return 9
     fi
+    popd
+    git -C "${GITDIR}" fetch origin --tags --force --prune
   else
     git -C "${GITDIR}" fetch origin --tags --force --prune
     git -C "${GITDIR}" worktree add "${WORKTREE}" "${TAGBRANCH}"
-    pushd "${WORKTREE}"
   fi
 
   # Finally: determine if we were fed a tag or a branch, and actually update
   # the local working tree.
-  git -C "${GITDIR}" fetch origin --tags --force --prune
-  if git rev-parse --verify origin/${TAGBRANCH}^{commit} &> /dev/null
+  if git -C "${WORKTREE}" rev-parse --verify origin/${TAGBRANCH}^{commit} &> /dev/null
   then
-    git reset --hard origin/${TAGBRANCH} --
+    git -C "${WORKTREE}" reset --hard origin/${TAGBRANCH} --
   else
-    git reset --hard ${TAGBRANCH} --
+    git -C "${WORKTREE}" reset --hard ${TAGBRANCH} --
   fi
-  popd
 }
