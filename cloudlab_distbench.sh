@@ -66,9 +66,9 @@ ECHODELAY=0.01 source common_status.sh
 
 function clssh() { ssh -o 'StrictHostKeyChecking no' "${@}"; }
 
-if [[ $# -gt 4 ]]
+if [[ $# -gt 5 ]]
 then
-  echo_red "$0 takes at most 4 arguments"
+  echo_red "$0 takes at most 5 arguments"
   exit 1
 fi
 
@@ -76,6 +76,7 @@ CLUSTER_DOMAINNAME=${1:-${DEFAULT_CLUSTER_DOMAINNAME}}
 GIT_REPO=${2:-${DEFAULT_GIT_REPO}}
 GIT_BRANCH=${3:-${DEFAULT_GIT_BRANCH}}
 declare -i NUM_NODES=${4:-0}
+PRIVATE_NETDEV=${5:-}
 
 echo_green "Setting up experimental cluster ${CLUSTER_DOMAINNAME} ..."
 echo_green "  Using git repo: ${GIT_REPO} branch: ${GIT_BRANCH}"
@@ -98,32 +99,38 @@ else
   echo_green "\\nUsing $NUM_NODES nodes in experimental cluster."
 fi
 
-echo_green "\\nPicking private netdev to use..."
 NODE0=node0.${CLUSTER_DOMAINNAME}
-PUBLIC_HOSTNAME=$(clssh ${NODE0} hostname -f)
-PUBLIC_IP=$(host ${PUBLIC_HOSTNAME} | cut -f 4 -d" ")
-netdev_list=($(clssh ${NODE0} ip -br link list |
-                 grep LOWER_UP |
-                 grep -v lo |
-                 cut -f1 -d " "))
-if [[ ${#netdev_list[@]} -eq 0 ]]
+
+if [[ -n "${PRIVATE_NETDEV}" ]]
 then
-  echo_red "\\nNo netdevs returned"
-  exit 1
-fi
-for netdev in "${netdev_list[@]}"
-do
-  echo_green "  Trying netdev $netdev..."
-  if clssh ${NODE0} ip address show dev $netdev | grep $PUBLIC_IP &> /dev/null
+  echo_green "\\nUsing netdev ${PRIVATE_NETDEV} ..."
+else
+  echo_green "\\nPicking private netdev to use..."
+  PUBLIC_HOSTNAME=$(clssh ${NODE0} hostname -f)
+  PUBLIC_IP=$(host ${PUBLIC_HOSTNAME} | cut -f 4 -d" ")
+  netdev_list=($(clssh ${NODE0} ip -br link list |
+                   grep LOWER_UP |
+                   grep -v lo |
+                   cut -f1 -d " "))
+  if [[ ${#netdev_list[@]} -eq 0 ]]
   then
-    echo_green "    Netdev ${netdev} is the public interface."
-    PUBLIC_NETDEV=${netdev}
-  else
-    echo_green "    Netdev ${netdev} is a private interface."
-    PRIVATE_NETDEV=${netdev}
-    break
+    echo_red "\\nNo netdevs returned"
+    exit 1
   fi
-done
+  for netdev in "${netdev_list[@]}"
+  do
+    echo_green "  Trying netdev $netdev..."
+    if clssh ${NODE0} ip address show dev $netdev | grep $PUBLIC_IP &> /dev/null
+    then
+      echo_green "    Netdev ${netdev} is the public interface."
+      PUBLIC_NETDEV=${netdev}
+    else
+      echo_green "    Netdev ${netdev} is a private interface."
+      PRIVATE_NETDEV=${netdev}
+      break
+    fi
+  done
+fi
 
 CONTROL_NETDEV=${PRIVATE_NETDEV}
 TRAFFIC_NETDEV=${PRIVATE_NETDEV}
@@ -159,7 +166,7 @@ function launch_remote() {
   # The double -t sends SIGHUP to the remote processes when the local ssh client
   # is killed by e.g. SIGTERM.
   clssh -t -t -L 11000:${SEQUENCER_IP}:${SEQUENCER_PORT} ${NODE0} \
-    "TERM=$TERM; stty -echo ; bash /dev/stdin" \
+    "export TERM=$TERM; stty -echo ; bash /dev/stdin" \
     "${NUM_NODES}" \
     "${GIT_REPO}" \
     "${GIT_BRANCH}" \
@@ -169,7 +176,8 @@ function launch_remote() {
     "${TRAFFIC_NETDEV}"
 }
 
-(cat common_status.sh git_clone_or_update.sh /dev/stdin | launch_remote) << 'EOF'
+sh_files=(common_status.sh git_clone_or_update.sh)
+(cat ${sh_files[@]} /dev/stdin | launch_remote) << 'EOF'
 ######################## REMOTE SCRIPT BEGINS HERE #############################
 # We must enclose the contents in () to force bash to read the entire script
 # before execution starts. Otherwise commands reading from stdin may steal the

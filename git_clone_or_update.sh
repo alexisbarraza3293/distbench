@@ -90,7 +90,9 @@ function git_clone_or_update() {
     pushd "${WORKTREE}"
     # Make sure the worktree is a functional worktree of the right git repo!!!
 
-    if [[ -n "$(git rev-parse --show-prefix)" ]]
+    if [[ -n "$(git rev-parse --show-prefix)" || \
+          "$(git rev-parse --git-dir)" != \
+              "${GITDIR}/.git/worktrees/${TAGBRANCH}" ]]
     then
       echo_red "\\nLocal git worktree may be corrupted!!!"
       echo_red "  Refusing to overwrite anything..."
@@ -119,9 +121,10 @@ function git_clone_or_update() {
       return 9
     fi
     popd
-    git -C "${GITDIR}" fetch origin --tags --force --prune
-  else
-    git -C "${GITDIR}" fetch origin --tags --force --prune
+  fi
+  git -C "${GITDIR}" fetch origin --tags --force --prune
+  if [[ ! -d "${WORKTREE}" ]]
+  then
     git -C "${GITDIR}" worktree add "${WORKTREE}" "${TAGBRANCH}"
   fi
 
