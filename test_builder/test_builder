@@ -882,7 +882,7 @@ function clique_traffic_pattern_setup() {
 
   set_parameter_default rpc_interval_us 16000
   set_parameter_default node_count 10
-  set_parameter_default synchronization_mode sync_burst "sync_burst sync_burst_spread"
+  set_parameter_default synchronization_mode sync_burst "constant exponential_distribution sync_burst sync_burst_spread"
   set_parameter_default request_size 1024
   set_parameter_default response_size 1024
   local REQUEST_SIZE="${params_dict[request_size]}"
@@ -937,6 +937,83 @@ function clique_traffic_pattern_setup() {
   action_lists {
     name: 'clique_query'
     # no actions, NOP
+  }"
+}
+
+################################################################################
+# Setup the test config proto for the clique traffic pattern:
+# Arguments:
+#   None
+# Inherits and mutates:
+#   RESULTS_COLLECTION_TIMEOUT
+#   params_dict (associative array)
+################################################################################
+function homa_cp_node_traffic_pattern_setup() {
+  local -i TEST_DURATION="${params_dict[test_duration]}"
+  params_dict[test_timeout]="$((TEST_DURATION + RESULTS_COLLECTION_TIMEOUT))"
+
+  set_parameter_default gbps 1
+  set_parameter_default node_count 10
+  set_parameter_default synchronization_mode exponential_distribution "constant exponential_distribution sync_burst sync_burst_spread"
+  set_parameter_default workload w5
+  set_parameter_default max_message_length 1000000
+  set_parameter_default min_bucket_frac 0.0025
+  set_parameter_default max_size_ratio = 1.2
+  local GBPS="${params_dict[gbps]}"
+  local NODE_COUNT="${params_dict[node_count]}"
+  local WORKLOAD="${params_dict[workload]}"
+  local MAX_MESSAGE_LENGTH="${params_dict[max_message_length]}"
+  local MIN_BUCKET_FRAC="${params_dict[min_bucket_frac]}"
+  local MAX_SIZE_RATIO="${params_dict[max_size_ratio]}"
+  validate_integer 1 GBPS
+  validate_integer 2 NODE_COUNT
+  local SYNCHRONIZATION_MODE="${params_dict[synchronization_mode]}"
+  local TRAFFIC_ALIAS="clique_"
+  local CDF_POINTS=$(dist_to_proto)
+  local RPC_INTERVAL_NS=$(ls)
+  TRAFFIC_ALIAS+="${SYNCHRONIZATION_MODE}_${NODE_COUNT}x${GBPS}x${WORKLOAD}"
+  local TEST_NAME="${TRAFFIC_ALIAS}-${params_dict[protocol_alias]}"
+  params_dict[traffic_pattern]="homa_cp_node"
+  params_dict[traffic_alias]="${TRAFFIC_ALIAS}"
+  params_dict[test_name]="${TEST_NAME}"
+  params_dict[traffic_pattern_options_proto]="\
+  name: '${TEST_NAME}'
+  services {
+    name: 'clique'
+    count: ${NODE_COUNT}
+  }
+  action_lists {
+    name: 'clique'
+    action_names: 'clique_queries'
+  }
+  actions {
+    name: 'clique_queries'
+    iterations {
+      max_duration_us: ${TEST_DURATION}000000
+      open_loop_interval_ns: ${RPC_INTERVAL_NS}
+      open_loop_interval_distribution: '${SYNCHRONIZATION_MODE}'
+      warmup_iterations: 1500
+    }
+    rpc_name: 'clique_query'
+  }
+  rpc_descriptions {
+    name: 'clique_query'
+    client: 'clique'
+    server: 'clique'
+    fanout_filter: 'random
+    distribution_config_name: "dist_config"
+  }
+  action_lists {
+    name: 'clique_query'
+    # no actions, NOP
+  }
+  overload_limits {
+    max_pending_rpcs: 5000
+  }
+  distribution_config{
+    name: "dist_config"
+    field_names: "payload_size"
+${CDF_POINTS}
   }"
 }
 
