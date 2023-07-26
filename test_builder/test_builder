@@ -958,7 +958,7 @@ function homa_cp_node_traffic_pattern_setup() {
   set_parameter_default workload w5
   set_parameter_default max_message_length 1000000
   set_parameter_default min_bucket_frac 0.0025
-  set_parameter_default max_size_ratio = 1.2
+  set_parameter_default max_size_ratio 1.2
   local GBPS="${params_dict[gbps]}"
   local NODE_COUNT="${params_dict[node_count]}"
   local WORKLOAD="${params_dict[workload]}"
@@ -969,8 +969,10 @@ function homa_cp_node_traffic_pattern_setup() {
   validate_integer 2 NODE_COUNT
   local SYNCHRONIZATION_MODE="${params_dict[synchronization_mode]}"
   local TRAFFIC_ALIAS="clique_"
-  local CDF_POINTS=$(dist_to_proto)
-  local RPC_INTERVAL_NS=$(ls)
+  local INTERVAL_FILE=$(mktemp)
+  local CDF_POINTS=$(dist_to_proto ${WORKLOAD} ${MAX_MESSAGE_LENGTH} \
+    ${MIN_BUCKET_FRAC} ${MAX_SIZE_RATIO} ${GBPS} 2> $INTERVAL_FILE)
+  local RPC_INTERVAL_NS=$(cat $INTERVAL_FILE)
   TRAFFIC_ALIAS+="${SYNCHRONIZATION_MODE}_${NODE_COUNT}x${GBPS}x${WORKLOAD}"
   local TEST_NAME="${TRAFFIC_ALIAS}-${params_dict[protocol_alias]}"
   params_dict[traffic_pattern]="homa_cp_node"
@@ -1000,19 +1002,19 @@ function homa_cp_node_traffic_pattern_setup() {
     name: 'clique_query'
     client: 'clique'
     server: 'clique'
-    fanout_filter: 'random
-    distribution_config_name: "dist_config"
+    fanout_filter: 'random'
+    distribution_config_name: 'dist_config'
   }
   action_lists {
     name: 'clique_query'
     # no actions, NOP
   }
   overload_limits {
-    max_pending_rpcs: 5000
+    max_pending_rpcs: 50000
   }
   distribution_config{
-    name: "dist_config"
-    field_names: "payload_size"
+    name: 'dist_config'
+    field_names: 'payload_size'
 ${CDF_POINTS}
   }"
 }
