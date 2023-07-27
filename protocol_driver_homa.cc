@@ -288,7 +288,8 @@ void ProtocolDriverHoma::InitiateRpc(int peer_index, ClientRpcState* state,
                 &kernel_rpc_number, reinterpret_cast<uint64_t>(new_rpc));
   if (res < 0) {
     LOG(INFO) << "homa_send result: " << res << " errno: " << errno
-              << " kernel_rpc_number " << kernel_rpc_number;
+              << " kernel_rpc_number " << kernel_rpc_number << " payload_size:"
+              << new_rpc->state->request.response_payload_size();
     delete new_rpc;
     --pending_rpcs_;
     state->success = false;
